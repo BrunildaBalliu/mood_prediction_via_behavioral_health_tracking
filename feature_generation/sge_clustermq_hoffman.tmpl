@@ -1,0 +1,15 @@
+## From https://github.com/mschubert/clustermq/wiki/SGE
+#$ -N {{ job_name }}               # job name
+#$ -t 1-{{ n_jobs }}               # submit jobs as array
+#$ -j y                            # combine stdout/error in one file
+#$ -o {{ log_file | /dev/null }}   # output file
+#$ -cwd                            # use pwd as work dir
+#$ -V                              # use environment variable
+#$ -l h_data=3G,h_rt=6:00:00
+## #$ -pe shared 2  
+
+. /u/local/Modules/default/init/modules.sh
+module load R/4.0.2              
+
+## ulimit -v $(( 1024 * {{ memory | 4096 }} )) # Uncomment and adjust for memory requirements.
+CMQ_AUTH={{ auth }} R --no-save --no-restore -e 'clustermq:::worker("{{ master }}")' # Leave alone.
