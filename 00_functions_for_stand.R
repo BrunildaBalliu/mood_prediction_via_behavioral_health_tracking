@@ -7,35 +7,43 @@
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 #%%%%%%%%%% Libraries 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-library(cowplot)
-library(cpm)
-library(data.table)
-library(dplyr)
-library(Gmisc)
-library(grid)
-library(ggforce)
-library(ggplot2)
-library(ggcorrplot)
-library(gridExtra)
-library(magrittr)
-library(Metrics)
-library(mhsmm)
-library(lmerTest)
-library(PRROC)
-library(qvalue)
-library(reshape2)
-library(RColorBrewer)
-library(ROSE)
-library(readr)
-library(stringr)
-# library(softImpute)
-library(viridis)
-library(variancePartition)
-
-print("Loaded all libraries")
+suppressPackageStartupMessages(library(cowplot))
+suppressPackageStartupMessages(library(cpm))
+suppressPackageStartupMessages(library(data.table))
+suppressPackageStartupMessages(library(dplyr))
+suppressPackageStartupMessages(library(Gmisc))
+suppressPackageStartupMessages(library(grid))
+suppressPackageStartupMessages(library(ggforce))
+suppressPackageStartupMessages(library(ggplot2))
+suppressPackageStartupMessages(library(ggcorrplot))
+suppressPackageStartupMessages(library(glmnet))
+suppressPackageStartupMessages(library(gridExtra))
+suppressPackageStartupMessages(library(magrittr))
+suppressPackageStartupMessages(library(Metrics))
+suppressPackageStartupMessages(library(mhsmm))
+suppressPackageStartupMessages(library(lmerTest))
+suppressPackageStartupMessages(library(PRROC))
+suppressPackageStartupMessages(library(pheatmap))
+suppressPackageStartupMessages(library(psychometric))
+suppressPackageStartupMessages(library(qvalue))
+suppressPackageStartupMessages(library(reshape2))
+suppressPackageStartupMessages(library(readxl))
+suppressPackageStartupMessages(library(RColorBrewer))
+suppressPackageStartupMessages(library(ROSE))
+suppressPackageStartupMessages(library(readr))
+suppressPackageStartupMessages(library(stringr))
+suppressPackageStartupMessages(library(softImpute))
+suppressPackageStartupMessages(library(tibble))
+suppressPackageStartupMessages(library(tidyr))
+suppressPackageStartupMessages(library(UpSetR))
+suppressPackageStartupMessages(library(viridis))
+suppressPackageStartupMessages(library(variancePartition))
+suppressPackageStartupMessages(library(WriteXLS))
 
 select <- dplyr::select
 melt <- reshape2::melt
+
+print("Loaded all libraries")
 
 #%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 #%%%%%%%%%% Functions
@@ -548,7 +556,7 @@ smooth.spline2=function(daily_data,imputation_type,n_knots=NULL){
     imputed_cat_mh=predict(object = smooth.spline(x = as.numeric(obs_daily_data$Date),  y = obs_daily_data$severity, df=n_knots), x = as.numeric(daily_data$Date))$y
   
   if(imputation_type=="best")
-    imputed_cat_mh=predict(object = smooth.spline(x = as.numeric(obs_daily_data$Date), y = obs_daily_data$severity, cv = CV), x = as.numeric(daily_data$Date))$y
+    imputed_cat_mh=predict(object = smooth.spline(x = as.numeric(obs_daily_data$Date), y = obs_daily_data$severity), x = as.numeric(daily_data$Date))$y
   
   return(imputed_cat_mh)
 }
@@ -556,42 +564,35 @@ smooth.spline2=function(daily_data,imputation_type,n_knots=NULL){
 ###### Function for CAT-MH  prediction
 # Predict CAT-MH scores or binary categories using glmnet implementation of elastic net
 pred_glmnet=function(train_x, train_y, test_x, nfolds = 10, family = "gaussian"){
-  library(glmnet)
   fit_lasso_cv = cv.glmnet(x = train_x, y = train_y, alpha = .5, nfolds = nfolds, family = family, standardize=FALSE, standardize.response = FALSE)
   my_prediction_train=predict(fit_lasso_cv, newx =train_x , type = "response", s = fit_lasso_cv$lambda.min)[,1]
   my_prediction_test=predict(fit_lasso_cv, newx =test_x , type = "response", s = fit_lasso_cv$lambda.min)[,1]
   return(c(my_prediction_train,my_prediction_test))
 }
 
+
 pred_glmnet_popscale=function(train_x, train_y, test_x, nfolds = 10, family = "gaussian"){
-  library(glmnet)
   fit_lasso_cv = cv.glmnet(x = train_x, y = train_y, alpha = .5, nfolds = nfolds, family = family, standardize=FALSE, standardize.response = FALSE)
-  betas=data.table(as.matrix(coef(fit_lasso_cv)), keep.rownames = T) %>% rename(variable=rn, coef=`1`)
   my_prediction_train=predict(fit_lasso_cv, newx =train_x , type = "response", s = fit_lasso_cv$lambda.min)[,1]
   my_prediction_test=predict(fit_lasso_cv, newx =test_x , type = "response", s = fit_lasso_cv$lambda.min)[,1]
-  return(list(betas=betas, predictions=c(my_prediction_train,my_prediction_test)))
+  betas=data.table(as.matrix(coef(fit_lasso_cv)), keep.rownames = T) 
+  colnames(betas)= c("variable", "coef")
+  return(list(betas=betas[betas$coef!=0,], predictions=c(my_prediction_train,my_prediction_test)))
 }
 
 # Predict CAT-MH scores or binary categories using intercept-only model
 pred_intercept=function(train_x, train_y, test_x, family = "gaussian"){
-  if(family == "gaussian") fit_lm = lm(train_y~1)
-  if(family == "binomial") fit_lm = glm(train_y~1, family = "binomial")
+  if(family == "gaussian") fit_lm = lm(formula = train_y~1+study_day, data = data.frame(train_x))
+  if(family == "binomial") fit_lm = glm(formula = train_y~1+study_day, data = data.frame(train_x), family = "binomial")
   my_prediction_train=predict(fit_lm, type = "response")
   my_prediction_test=predict(fit_lm, newdata = data.frame(test_x), type = "response")
   return(c(my_prediction_train,my_prediction_test))
 }
 
-pred_glmnet_feature_importance=function(train_x, train_y, test_x, nfolds = 10){
-  library(glmnet)
-  fit_lasso_cv = cv.glmnet(x = train_x, y = train_y, alpha = .5, nfolds = 10, family = "gaussian", standardize=FALSE, standardize.response = FALSE)
-  betas=data.table(as.matrix(coef(fit_lasso_cv)), keep.rownames = T) %>% rename(variable=rn, coef=`1`)
-  betas[betas$coef!=0,] %>% arrange(desc(abs(coef)))
-  return(betas[betas$coef!=0,])
-}
 
 # Predict CAT-MH scores or binary categories using bigstatsR implementation of elastic net
 pred_bigstatsR=function(X, y, ind.train, ind.test, family = "normal", K = 10){
-  library(bigstatsr)
+  
   if(family == "normal") {
     test <- big_spLinReg(X = X, y.train = y[ind.train], ind.train = ind.train,  
                          alphas =seq(.1,1,.1), K = K, warn = FALSE)
@@ -609,7 +610,7 @@ pred_bigstatsR=function(X, y, ind.train, ind.test, family = "normal", K = 10){
 
 # Compute F-measure of binary classification 
 # F2 measure weights recall twice as high as precision
-  
+
 Fb=function(actual, predicted, b=1) {
   
   precision=precision(actual = actual, predicted = predicted)
@@ -627,7 +628,6 @@ AUC_PR=function(observed, predicted){
 
 ##### Function to plot trajectory of an individual
 plot_trajectory=function(data, yaxis_lab){
-  library(ggplot2)
   ggplot(data = data %>% mutate(real_cat = factor(x = real_cat, levels = c(0,1), labels = c("interpolated","real"))), 
          mapping = aes(x=as.Date(Date), y = var2plot )) + 
     geom_point(aes(size = real_cat)) + 
